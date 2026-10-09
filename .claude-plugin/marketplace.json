@@ -1,0 +1,13 @@
+{
+  "name": "secret-drop",
+  "description": "Secure input window for API keys and passwords in Claude Code",
+  "owner": {
+    "name": "Artem Islamov"
+  },
+  "plugins": [
+    {
+      "name": "secret-drop",
+      "source": "./"
+    }
+  ]
+}

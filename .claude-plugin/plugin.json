@@ -1,0 +1,24 @@
+{
+  "name": "secret-drop",
+  "version": "0.1.0",
+  "description": "Secure input window for API keys and passwords: Claude asks, you type into a masked field, the mod writes .env / GitHub Secrets itself. The value never enters the chat.",
+  "author": { "name": "Artem Islamov" },
+  "license": "MIT",
+  "keywords": ["secrets", "env", "api-key", "github-secrets", "security"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Interface language: auto, en or ru",
+      "default": "auto",
+      "options": ["auto", "en", "ru"]
+    },
+    "guardPrompts": {
+      "type": "boolean",
+      "title": "Block keys pasted into chat",
+      "description": "Stop a prompt that contains something that looks like an API key and put it back with the key cut out",
+      "default": true
+    }
+  }
+}

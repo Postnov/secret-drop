@@ -1,0 +1,97 @@
+# 🔐 secret-drop
+
+A Claude Code mod for handing Claude API keys and passwords **without pasting them into the chat**.
+
+When Claude needs a key, a band appears right above the prompt with a masked field. You paste the key and press Enter. The mod writes it to `.env` or GitHub Actions secrets on its own. Claude only learns `OPENAI_API_KEY saved (51 chars)`, never the value.
+
+No more "start a local server so I can type the key in a browser".
+
+## Install
+
+In a Claude Code terminal session:
+
+```
+/plugin install secret-drop --marketplace aislam23/secret-drop
+```
+
+Answer `y` to add the marketplace, then pick the user scope. Once installed at the user scope, the mod also works in the desktop app's Code tab.
+
+## How it works
+
+**Claude asks.** The mod gives Claude a `request_secret` tool and tells it to use the tool instead of asking for keys in the chat:
+
+> Claude: I need the OpenAI key for the bot. I've opened a secure field above your prompt.
+
+```
+(🔑)  Claude asks for a key · the bot calls the OpenAI API      ●○ 1/2  [📄 .env in the project folder]
+      OPENAI_API_KEY  platform.openai.com → API keys
+
+Paste the key →  [ •••••••••••••••••••• ] [next]                          Show   Skip   Cancel
+🛡 The value never enters the chat. Claude only learns the name and length.
+```
+
+On the desktop app the band is drawn with SVG in Claude's own colours. In the terminal it is plain text.
+
+After you press Enter on the last key, the mod saves everything and sends Claude a short report:
+
+```
+[secret-drop] The user finished the secure input you requested.
+Entered: OPENAI_API_KEY (51 chars), TELEGRAM_BOT_TOKEN (46 chars).
+✓ OPENAI_API_KEY, TELEGRAM_BOT_TOKEN → /Users/me/bot/.env
+✓ added /.env to .gitignore
+✓ OPENAI_API_KEY → GitHub Secrets (me/bot)
+```
+
+**You ask.** You can also open the field yourself:
+
+```
+/secret OPENAI_API_KEY STRIPE_SECRET_KEY
+/secret DEPLOY_TOKEN --github                # .env plus this repo's GitHub secrets
+/secret DEPLOY_TOKEN --github me/other-repo --no-env
+/secret DB_PASSWORD --env-file config/.env.local
+```
+
+**Safety net.** If you paste a key straight into the chat anyway (OpenAI, Anthropic, GitHub, AWS, Google, Stripe, Slack, Telegram bot, Supabase, Hugging Face, GitLab, private keys), the message is **not sent**. It goes back into the prompt box with the key cut out.
+
+## What it does with the value
+
+- **.env:** updates the line in place, keeping `export` if it was there, or appends a new one. Values with spaces or special characters get quoted. A new file gets `chmod 600`. If the file is in a git repo and not ignored, the mod adds it to `.gitignore`. If it is already committed, it warns you.
+- **GitHub:** runs `gh secret set NAME [--repo] [--env]` and passes the value through **stdin**, so it never shows up in the process list. This needs [`gh`](https://cli.github.com) to be signed in.
+- The value stays only in the mod's memory until it is saved. It is not written to the transcript, the mod's state, logs or the message to Claude, and the masked field shows dots.
+
+## Settings
+
+In `/config` → secret-drop:
+
+| Option | Default | |
+| --- | --- | --- |
+| `language` | `auto` | `en` / `ru` window text. `auto` follows `LANG`, falling back to the macOS language list |
+| `guardPrompts` | `true` | block messages that contain keys |
+
+## Limits
+
+- This keeps secrets out of the **conversation**. Claude can still run `cat .env` if you allow it, so say no to that request. The tool's description tells Claude not to.
+- The masked field redraws as you type. Over a slow link a character may show for a split second before it turns into a dot.
+- On the desktop app the text field has a fixed width, so a very long key scrolls inside it.
+- Other mods that hook `ui.input` could see what you type, just as any installed plugin sees your keystrokes. Install mods you trust.
+- The mobile app has no text field yet. Use the terminal or the desktop app.
+
+## Development
+
+```
+claude plugin validate .
+claude plugin test .
+claude --plugin-dir .
+```
+
+MIT © Artem Islamov
+
+---
+
+## По-русски
+
+Мод для Claude Code: передаёт Claude ключи и пароли **без вставки в чат**. Когда Claude нужен ключ, прямо над полем сообщения появляется плашка со скрытым полем. Вставляешь ключ, жмёшь Enter, и мод сам кладёт его в `.env` или в GitHub Secrets. Claude узнаёт только «OPENAI_API_KEY сохранён (51 симв.)».
+
+- Claude сам вызывает инструмент `request_secret`, а ты можешь открыть окно сам: `/secret ИМЯ [--github]`.
+- Если всё-таки вставишь ключ в сообщение, оно не уйдёт: текст вернётся в поле ввода уже без ключа.
+- `.env` добавляется в `.gitignore`. В GitHub значение уходит через stdin `gh secret set`.
