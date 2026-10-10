@@ -51,7 +51,7 @@ Entered: OPENAI_API_KEY (51 chars), TELEGRAM_BOT_TOKEN (46 chars).
 /secret DB_PASSWORD --env-file config/.env.local
 ```
 
-**Safety net.** If you paste a key straight into the chat anyway (OpenAI, Anthropic, GitHub, AWS, Google, Stripe, Slack, Telegram bot, Supabase, Hugging Face, GitLab, private keys), the message is **not sent**. It goes back into the prompt box with the key cut out.
+**Safety net.** If you paste a key straight into the chat anyway (OpenAI, Anthropic, ElevenLabs, GitHub, GitLab, AWS, Google, Stripe, Slack, Telegram bot, Supabase, Hugging Face, Groq, xAI, Perplexity, Replicate, npm, Yandex, private keys), the message is **not sent**. A long token next to words like *key*, *token*, *password* or *ключ* is caught too, even in an unknown format. It goes back into the prompt box with the key cut out.
 
 ## What it does with the value
 
@@ -93,5 +93,5 @@ MIT © Artem Islamov
 Мод для Claude Code: передаёт Claude ключи и пароли **без вставки в чат**. Когда Claude нужен ключ, прямо над полем сообщения появляется плашка со скрытым полем. Вставляешь ключ, жмёшь Enter, и мод сам кладёт его в `.env` или в GitHub Secrets. Claude узнаёт только «OPENAI_API_KEY сохранён (51 симв.)».
 
 - Claude сам вызывает инструмент `request_secret`, а ты можешь открыть окно сам: `/secret ИМЯ [--github]`.
-- Если всё-таки вставишь ключ в сообщение, оно не уйдёт: текст вернётся в поле ввода уже без ключа.
+- Если всё-таки вставишь ключ в сообщение, оно не уйдёт: текст вернётся в поле ввода уже без ключа. Ловятся известные форматы (OpenAI, Anthropic, ElevenLabs, Telegram-бот и др.) и любая длинная строка рядом со словами «ключ», «токен», «пароль».
 - `.env` добавляется в `.gitignore`. В GitHub значение уходит через stdin `gh secret set`.

@@ -67,6 +67,13 @@ const PATTERNS: ReadonlyArray<{ kind: string; name: string; re: RegExp }> = [
   { kind: 'AWS', name: 'AWS_ACCESS_KEY_ID', re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { kind: 'Google', name: 'GOOGLE_API_KEY', re: /\bAIza[0-9A-Za-z_-]{35}\b/g },
   { kind: 'Stripe', name: 'STRIPE_SECRET_KEY', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g },
+  { kind: 'ElevenLabs', name: 'ELEVENLABS_API_KEY', re: /\bsk_[A-Za-z0-9]{24,}\b/g },
+  { kind: 'Groq', name: 'GROQ_API_KEY', re: /\bgsk_[A-Za-z0-9]{40,}\b/g },
+  { kind: 'xAI', name: 'XAI_API_KEY', re: /\bxai-[A-Za-z0-9]{40,}\b/g },
+  { kind: 'Perplexity', name: 'PERPLEXITY_API_KEY', re: /\bpplx-[A-Za-z0-9]{40,}\b/g },
+  { kind: 'Replicate', name: 'REPLICATE_API_TOKEN', re: /\br8_[A-Za-z0-9]{30,}\b/g },
+  { kind: 'npm', name: 'NPM_TOKEN', re: /\bnpm_[A-Za-z0-9]{36}\b/g },
+  { kind: 'Yandex', name: 'YANDEX_TOKEN', re: /\b(?:y0_[A-Za-z0-9_-]{40,}|AQVN[A-Za-z0-9_-]{30,})/g },
   { kind: 'Slack', name: 'SLACK_TOKEN', re: /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g },
   { kind: 'Telegram bot', name: 'TELEGRAM_BOT_TOKEN', re: /\b\d{8,10}:AA[A-Za-z0-9_-]{33}\b/g },
   { kind: 'Supabase', name: 'SUPABASE_ACCESS_TOKEN', re: /\bsbp_[a-f0-9]{40}\b/g },
@@ -76,6 +83,21 @@ const PATTERNS: ReadonlyArray<{ kind: string; name: string; re: RegExp }> = [
 
 export type Found = { kind: string; name: string }
 
+/** Words that say "a secret is next to this", in English and Russian. */
+const SECRET_CONTEXT = /(api|key|token|secret|password|passwd|ключ|ключик|токен|секрет|пароль)/i
+
+/**
+ * A token-like string with no known shape: 20+ characters of letters, digits, `_` or `-`,
+ * holding both letters and at least three digits. Git hashes (40 hex) and UUIDs are left alone.
+ */
+const LOOSE_TOKEN = /(?<![\w/.@-])[A-Za-z0-9][A-Za-z0-9_-]{19,}(?![\w/.@-])/g
+const isLooseSecret = (s: string) =>
+  /[A-Za-z]/.test(s) &&
+  (s.match(/[0-9]/g)?.length ?? 0) >= 3 &&
+  !/^[0-9a-f]{40}$/i.test(s) &&
+  !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) &&
+  !/^[A-Z0-9_]+$/.test(s) // an UPPER_CASE_NAME is a variable name, not its value
+
 /** Finds token-shaped strings and returns the text with each one cut out. */
 export function redactSecrets(text: string): { found: Found[]; text: string } {
   const found: Found[] = []
@@ -84,6 +106,13 @@ export function redactSecrets(text: string): { found: Found[]; text: string } {
     out = out.replace(re, () => {
       found.push({ kind, name })
       return `[${kind} key removed]`
+    })
+  }
+  if (SECRET_CONTEXT.test(out)) {
+    out = out.replace(LOOSE_TOKEN, match => {
+      if (!isLooseSecret(match)) return match
+      found.push({ kind: 'API', name: 'API_KEY' })
+      return '[key removed]'
     })
   }
 

@@ -49,6 +49,28 @@ describe('prompt guard', () => {
     expect(text).toBe('here is my key [Anthropic key removed] and bot [Telegram bot key removed]')
   })
 
+  test('catches ElevenLabs keys and unknown keys named as such', () => {
+    const fake = `sk_${'1c2b'.repeat(8)}`
+    const { found, text } = redactSecrets(`Я хочу чтобы ты сохранил этот ключик от Elevenlabs API → ${fake}`)
+    expect(found.map(item => item.kind)).toEqual(['ElevenLabs'])
+    expect(text).toBe('Я хочу чтобы ты сохранил этот ключик от Elevenlabs API → [ElevenLabs key removed]')
+
+    const loose = redactSecrets('вот токен от сервиса: Zq81kLm02XpR7tYv9wQe')
+    expect(loose.found.map(item => item.kind)).toEqual(['API'])
+    expect(loose.text).toBe('вот токен от сервиса: [key removed]')
+  })
+
+  test('leaves hashes, ids, links and variable names alone', () => {
+    const texts = [
+      'key commit 3f2a9c1e5b7d4f6a8c0e2b4d6f8a1c3e5b7d9f0a broke the build',
+      'api request id 123e4567-e89b-12d3-a456-426614174000',
+      'ключ лежит в https://example.com/docs/api/keys2024/v3/reference',
+      'put the key into OPENAI_API_KEY_2024_PROD',
+      'the token expires in 3600 seconds',
+    ]
+    for (const text of texts) expect(redactSecrets(text).found).toEqual([])
+  })
+
   test('leaves ordinary text alone', () => {
     expect(redactSecrets('set OPENAI_API_KEY in .env, see sk-learn docs').found).toEqual([])
   })
