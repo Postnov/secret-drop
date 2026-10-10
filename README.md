@@ -6,6 +6,8 @@ When Claude needs a key, a band appears right above the prompt with a masked fie
 
 No more "start a local server so I can type the key in a browser".
 
+The story of how this mod was built with Claude, step by step and with screenshots (in Russian): [How I taught Claude to take passwords and keys safely](https://islamov-tema.ru/blog/claude-secret-drop).
+
 ## Install
 
 In a Claude Code terminal session:
@@ -97,3 +99,5 @@ MIT © Artem Islamov
 - Claude сам вызывает инструмент `request_secret`, а ты можешь открыть окно сам: `/secret ИМЯ [--github]`.
 - Если всё-таки вставишь ключ в сообщение, оно не уйдёт. Сразу откроется плашка с уже подставленным ключом и угаданным именем (например `ELEVENLABS_API_KEY`): жмёшь Enter, и ключ сохранён, а в сообщении вместо ключа стоит его имя.
 - `.env` добавляется в `.gitignore`. В GitHub значение уходит через stdin `gh secret set`.
+
+Как мод делался вместе с Claude, со скриншотами и выводами про работу с агентом: [Как я научил Claude безопасно брать пароли и ключи с помощью мода](https://islamov-tema.ru/blog/claude-secret-drop).
