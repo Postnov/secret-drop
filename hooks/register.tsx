@@ -33,6 +33,9 @@ type StartArgs = {
   githubRepo?: string
   githubEnvironment?: string
   from: SecretRequest['from']
+  /** Values already known (the guard caught them), by secret index. */
+  prefill?: string[]
+  draft?: string
 }
 
 const TOOL_DESCRIPTION = `Ask the user for secrets (API keys, tokens, passwords) through a masked input window, then save them to a .env file and/or GitHub Actions secrets WITHOUT the values ever entering this conversation.
@@ -80,6 +83,8 @@ const TOOL_SCHEMA = {
 // The values live here and only here, for as long as the window is open.
 let buffer = ''
 const values = new Map<string, string>()
+// Keys the prompt guard caught, waiting in the band to be saved, by secret index.
+const prefill = new Map<number, string>()
 let S: Strings = STRINGS.en
 
 const namesOf = (req: SecretRequest) =>
@@ -92,6 +97,7 @@ const namesOf = (req: SecretRequest) =>
 let bandId: string | undefined
 
 const inputKey = (req: SecretRequest) => `value-${req.id}-${req.index}`
+const nameKey = (req: SecretRequest) => `name-${req.id}-${req.index}`
 
 async function focusBand($: Engine, req: SecretRequest) {
   if (bandId === undefined) return
@@ -130,7 +136,11 @@ async function start($: Engine, args: StartArgs): Promise<SecretRequest | string
     if (ghProblem) return `"${name}" cannot be a GitHub secret: ${ghProblem}.`
     if (seen.has(name)) continue
     seen.add(name)
-    secrets.push(ask.hint ? { name, hint: String(ask.hint) } : { name })
+    secrets.push({
+      name,
+      ...(ask.hint ? { hint: String(ask.hint) } : {}),
+      ...(ask.placeholder ? { placeholder: ask.placeholder } : {}),
+    })
   }
   if (secrets.length === 0) return 'Name at least one secret.'
 
@@ -145,14 +155,17 @@ async function start($: Engine, args: StartArgs): Promise<SecretRequest | string
       ? { repo: args.githubRepo, environment: args.githubEnvironment }
       : undefined,
     from: args.from,
+    ...(args.draft !== undefined ? { draft: args.draft } : {}),
     index: 0,
     captured: [],
     skipped: [],
     phase: 'input',
     report: [],
   }
-  buffer = ''
   values.clear()
+  prefill.clear()
+  args.prefill?.forEach((value, i) => prefill.set(i, value))
+  buffer = prefill.get(0) ?? ''
   await update($, isRevealed, () => false)
   await update($, request, () => req)
   void focusBand($, req)
@@ -226,6 +239,7 @@ async function save($: Engine, req: SecretRequest): Promise<string[]> {
 }
 
 async function tellModel($: Engine, req: SecretRequest, lengths: Map<string, number>, isCancelled: boolean) {
+  if (req.from === 'guard' && isCancelled) return
   const lines = ['[secret-drop]']
   if (isCancelled) {
     lines.push('The user cancelled the secure input. Nothing was saved.')
@@ -233,7 +247,9 @@ async function tellModel($: Engine, req: SecretRequest, lengths: Map<string, num
     lines.push(
       req.from === 'model'
         ? 'The user finished the secure input you requested.'
-        : 'The user stored secrets through /secret.',
+        : req.from === 'guard'
+          ? 'The user pasted a key into a message; secret-drop kept the message from being sent and the user stored the key instead.'
+          : 'The user stored secrets through /secret.',
     )
     const got = req.captured.map(name => `${name} (${lengths.get(name) ?? 0} chars)`)
     if (got.length > 0) lines.push(`Entered: ${got.join(', ')}.`)
@@ -249,6 +265,27 @@ async function tellModel($: Engine, req: SecretRequest, lengths: Map<string, num
   }
 }
 
+/** Puts the saved keys' names where the guard cut them out, if the person left the message as it was. */
+async function restoreDraft($: Engine, req: SecretRequest) {
+  if (req.from !== 'guard' || req.draft === undefined) return
+  const box = await $.prompt.read()
+  if (box.text !== req.draft) return
+  let text = req.draft
+  const where = req.envLabel ?? req.envFile ?? '.env'
+  for (const ask of req.secrets) {
+    if (ask.placeholder && req.captured.includes(ask.name)) text = text.replace(ask.placeholder, S.savedAs(ask.name, where))
+  }
+  if (text !== req.draft) await $.prompt.fill({ text })
+}
+
+async function renameAsk($: Engine, name: string) {
+  const clean = name.trim().replace(/[\s-]+/g, '_')
+  await update($, request, req => {
+    if (!req || req.phase !== 'input') return req
+    return { ...req, secrets: req.secrets.map((ask, i) => (i === req.index ? { ...ask, name: clean } : ask)) }
+  })
+}
+
 async function finish($: Engine, isCancelled: boolean) {
   const req = await read($, request)
   if (!req || req.phase !== 'input') return
@@ -257,6 +294,7 @@ async function finish($: Engine, isCancelled: boolean) {
   if (isCancelled) {
     buffer = ''
     values.clear()
+    prefill.clear()
     await update($, request, () => null)
     await tellModel($, req, lengths, true)
     return
@@ -265,9 +303,11 @@ async function finish($: Engine, isCancelled: boolean) {
   const report = await save($, req)
   buffer = ''
   values.clear()
+  prefill.clear()
   const done: SecretRequest = { ...req, phase: 'finished', report }
   await update($, request, () => done)
   await tellModel($, done, lengths, false)
+  await restoreDraft($, done)
   $.clock.after(8_000, () => {
     void (async () => {
       const now = await read($, request)
@@ -282,6 +322,10 @@ async function advance($: Engine, isTaken: boolean) {
   const ask = req.secrets[req.index]
   if (!ask) return
   if (isTaken && buffer === '') return
+  if (isTaken && !ENV_NAME.test(ask.name)) {
+    $.ui.toast(S.badName)
+    return
+  }
   if (isTaken) values.set(ask.name, buffer)
   buffer = ''
   const next: SecretRequest = {
@@ -292,6 +336,7 @@ async function advance($: Engine, isTaken: boolean) {
   await update($, isRevealed, () => false)
   if (req.index + 1 < req.secrets.length) {
     const moved = { ...next, index: req.index + 1 }
+    buffer = prefill.get(moved.index) ?? ''
     await update($, request, () => moved)
     void focusBand($, moved)
     return
@@ -430,6 +475,14 @@ export const register: Register = (on, options) => {
       const { found, text } = redactSecrets(e.text)
       if (found.length === 0) return next(e)
       $.clock.after(150, () => void $.prompt.fill({ text }))
+      // the same guessed name twice gets a number, so neither key is dropped
+      const used = new Map<string, number>()
+      const secrets = found.map(item => {
+        const n = (used.get(item.name) ?? 0) + 1
+        used.set(item.name, n)
+        return { name: n > 1 ? `${item.name}_${n}` : item.name, hint: S.guardHint(item.kind), placeholder: item.placeholder }
+      })
+      await start($, { secrets, from: 'guard', prefill: found.map(item => item.value), draft: text })
 
       return { drop: S.leaked([...new Set(found.map(item => item.kind))].join(', ')) }
     })
@@ -473,8 +526,10 @@ export const register: Register = (on, options) => {
       const destinations: Destination[] = []
       if (req.envFile) destinations.push({ kind: 'env', label: req.envLabel ?? req.envFile })
       if (req.github) destinations.push({ kind: 'github', label: S.ghTo(req.github.repo, req.github.environment) })
+      const isGuard = req.from === 'guard'
+      const cueW = isGuard ? Math.max(cueWidth(S.nameCue), cueWidth(S.keyCue)) : cueWidth(S.cue)
       const look = {
-        title: S.asks,
+        title: isGuard ? S.guardTitle : S.asks,
         reason: req.reason,
         name: ask.name,
         hint: ask.hint,
@@ -486,12 +541,34 @@ export const register: Register = (on, options) => {
           <Svg
             key={`head-${req.id}-${req.index}-${W}`}
             source={headerSvg(look, W)}
-            alt={`${S.asks}: ${ask.name}${ask.hint ? `, ${ask.hint}` : ''} → ${destinations.map(d => d.label).join(', ')}`}
+            alt={`${look.title}: ${ask.name}${ask.hint ? `, ${ask.hint}` : ''} → ${destinations.map(d => d.label).join(', ')}`}
             width={W}
             height={HEADER_H}
           />
+          {isGuard && (
+            <Box flexDirection="row" alignItems="center" columnGap={1}>
+              <Svg key={`cue-name-${cueW}`} source={cueSvg(S.nameCue, cueW)} alt={S.nameCue} width={cueW} height={CUE_H} />
+              <Box>
+                <Input
+                  key={nameKey(req)}
+                  value={ask.name}
+                  submitLabel={S.next}
+                  onInput={value => void renameAsk($, value)}
+                  onSubmit={value => {
+                    void renameAsk($, value).then(() => focusBand($, req))
+                  }}
+                />
+              </Box>
+            </Box>
+          )}
           <Box flexDirection="row" alignItems="center" columnGap={1}>
-            <Svg key={`cue-${S.cue}`} source={cueSvg(S.cue)} alt={S.cue} width={cueWidth(S.cue)} height={CUE_H} />
+            <Svg
+              key={`cue-${isGuard ? 'key' : 'ask'}-${cueW}`}
+              source={cueSvg(isGuard ? S.keyCue : S.cue, cueW)}
+              alt={isGuard ? S.keyCue : S.cue}
+              width={cueW}
+              height={CUE_H}
+            />
             <Box>
               <Input
                 key={inputKey(req)}
@@ -518,7 +595,14 @@ export const register: Register = (on, options) => {
               onPress={() => void update($, isRevealed, shown => !shown)}
             />
             {count > 1 && <Button key="skip" plain dimColor label={S.skip} onPress={() => void advance($, false)} />}
-            <Button key="cancel" plain dimColor label={S.cancel} role="dismiss" onPress={() => void finish($, true)} />
+            <Button
+              key="cancel"
+              plain
+              dimColor
+              label={isGuard ? S.dontSave : S.cancel}
+              role="dismiss"
+              onPress={() => void finish($, true)}
+            />
           </Box>
           <Svg key={`foot-${W}`} source={footSvg(S.footer, W)} alt={S.footer} width={W} height={FOOT_H} />
         </Box>
@@ -558,12 +642,13 @@ export const register: Register = (on, options) => {
       req.github ? S.ghTo(req.github.repo, req.github.environment) : undefined,
     ].filter((line): line is string => line !== undefined)
     const about = [req.reason, ask.hint].filter(Boolean).join(' · ')
+    const isGuard = req.from === 'guard'
 
     return (
       <Box flexDirection="column" rowGap={1}>
         <Box flexDirection="row" justifyContent="space-between" columnGap={2}>
           <Text wrap="truncate-end">
-            <Text bold>🔐 {S.asks} </Text>
+            <Text bold>🔐 {isGuard ? S.guardTitle : S.asks} </Text>
             <Text bold color="cyan">
               {ask.name}
             </Text>
@@ -578,10 +663,23 @@ export const register: Register = (on, options) => {
             {about}
           </Text>
         )}
+        {isGuard && (
+          <Input
+            key={nameKey(req)}
+            label={S.nameCue}
+            value={ask.name}
+            submitLabel={S.next}
+            onInput={value => void renameAsk($, value)}
+            onSubmit={value => {
+              void renameAsk($, value).then(() => focusBand($, req))
+            }}
+          />
+        )}
         <Box flexDirection="row" columnGap={1} alignItems="center">
           <Box flexGrow={1}>
             <Input
               key={inputKey(req)}
+              label={isGuard ? S.keyCue : undefined}
               placeholder={S.placeholder}
               value={revealed ? buffer : DOT.repeat(buffer.length)}
               submitLabel={isLast ? S.save : S.next}
@@ -602,7 +700,7 @@ export const register: Register = (on, options) => {
             onPress={() => void update($, isRevealed, shown => !shown)}
           />
           {count > 1 && <Button key="skip" label={S.skip} onPress={() => void advance($, false)} />}
-          <Button key="cancel" label={S.cancel} role="dismiss" onPress={() => void finish($, true)} />
+          <Button key="cancel" label={isGuard ? S.dontSave : S.cancel} role="dismiss" onPress={() => void finish($, true)} />
         </Box>
         <Text dimColor>🔒 {S.footer}</Text>
       </Box>

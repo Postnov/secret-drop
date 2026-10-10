@@ -168,8 +168,8 @@ export const CUE_H = 30
 export const cueWidth = (text: string) => Math.ceil(textWidth(text, 13) + 30)
 
 /** The pointer at the field: the one thing in the band that asks for attention. */
-export function cueSvg(text: string): string {
-  const W = cueWidth(text)
+export function cueSvg(text: string, width?: number): string {
+  const W = Math.max(width ?? 0, cueWidth(text))
   const y = CUE_H / 2
   return (
     open(W, CUE_H) +

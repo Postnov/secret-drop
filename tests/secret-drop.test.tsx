@@ -135,3 +135,46 @@ describe('secure input flow', () => {
     await ui.unmount()
   })
 })
+
+describe('caught key', () => {
+  test('a key pasted into a message opens the band already filled in, then the message gets its name', async ($, on) => {
+    const key = `sk_${'9f3a'.repeat(8)}`
+    const writes: Array<{ path: string; text: string }> = []
+    const fills: string[] = []
+    const draft = 'Use this elevenlabs key → [ElevenLabs key removed]'
+    on('session.cwd', () => ({ value: '/proj' }))
+    on('fs.exists', () => ({ value: false }))
+    on('fs.write', (_$, e) => {
+      writes.push({ path: e.path, text: e.text })
+      return { value: undefined }
+    })
+    on('process.run', () => ({ value: { exitCode: 128, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+    on('ui.focus', () => ({}))
+    on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
+    on('prompt.fill', (_$, e) => {
+      fills.push(e.text)
+      return { isFilled: true }
+    })
+
+    const sent = await $.prompt.submit({ text: `Use this elevenlabs key → ${key}`, wait: false, origin: { kind: 'composer' } })
+    expect('drop' in sent && typeof sent.drop === 'string').toBe(true)
+
+    const desk = await $.ui.mount({ plugin: 'secret-drop', surface: 'desktop', component: 'AbovePrompt', props: BAND_PROPS })
+    const head = await desk.find({ type: 'Svg' })
+    expect(String((head?.props as { alt?: string } | undefined)?.alt)).toContain('ELEVENLABS_API_KEY')
+    await desk.unmount()
+
+    const ui = await $.ui.mount({ plugin: 'secret-drop', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+    const inputs = await ui.findAll({ type: 'Input' })
+    const nameField = inputs.find(item => String(item.key).startsWith('name-'))
+    const valueField = inputs.find(item => String(item.key).startsWith('value-'))
+    expect(valueField?.text).toBe('•'.repeat(key.length))
+    await ui.input({ key: String(nameField?.key), text: 'ELEVEN_KEY', kind: 'change' })
+    await ui.input({ key: String(valueField?.key), text: '•'.repeat(key.length) })
+
+    expect(writes).toEqual([{ path: '/proj/.env', text: `ELEVEN_KEY=${key}\n` }])
+    expect(fills.at(-1)).toBe('Use this elevenlabs key → ELEVEN_KEY (saved to .env in the project folder)')
+    expect(fills.some(text => text.includes(key))).toBe(false)
+    await ui.unmount()
+  })
+})

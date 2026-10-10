@@ -81,7 +81,7 @@ const PATTERNS: ReadonlyArray<{ kind: string; name: string; re: RegExp }> = [
   { kind: 'private key', name: 'PRIVATE_KEY', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g },
 ]
 
-export type Found = { kind: string; name: string }
+export type Found = { kind: string; name: string; value: string; placeholder: string }
 
 /** Words that say "a secret is next to this", in English and Russian. */
 const SECRET_CONTEXT = /(api|key|token|secret|password|passwd|ключ|ключик|токен|секрет|пароль)/i
@@ -103,15 +103,16 @@ export function redactSecrets(text: string): { found: Found[]; text: string } {
   const found: Found[] = []
   let out = text
   for (const { kind, name, re } of PATTERNS) {
-    out = out.replace(re, () => {
-      found.push({ kind, name })
-      return `[${kind} key removed]`
+    out = out.replace(re, value => {
+      const placeholder = `[${kind} key removed]`
+      found.push({ kind, name, value, placeholder })
+      return placeholder
     })
   }
   if (SECRET_CONTEXT.test(out)) {
     out = out.replace(LOOSE_TOKEN, match => {
       if (!isLooseSecret(match)) return match
-      found.push({ kind: 'API', name: 'API_KEY' })
+      found.push({ kind: 'API', name: 'API_KEY', value: match, placeholder: '[key removed]' })
       return '[key removed]'
     })
   }
@@ -166,7 +167,14 @@ export const STRINGS = {
     tracked: (rel: string) => `⚠ ${rel} is already tracked by git: run git rm --cached ${rel}`,
     nothing: 'Nothing entered.',
     leaked: (kinds: string) =>
-      `secret-drop: this message looks like it holds a ${kinds} key, so it was not sent. It is back in the prompt box with the key cut out. Use /secret NAME to hand over the key safely.`,
+      `secret-drop: the message held a ${kinds} key, so it was not sent. Save the key in the band above the prompt; the message is back in the box without it.`,
+    guardTitle: 'Caught a key in your message',
+    guardHint: (kind: string) => `${kind} key, already filled in: check the name and press Enter`,
+    nameCue: 'Name',
+    keyCue: 'Key',
+    dontSave: "Don't save",
+    badName: 'secret-drop: a name is letters, digits and _, not starting with a digit',
+    savedAs: (name: string, where: string) => `${name} (saved to ${where})`,
   },
   ru: {
     title: 'Секрет',
@@ -204,7 +212,14 @@ export const STRINGS = {
     tracked: (rel: string) => `⚠ ${rel} уже в git: выполни git rm --cached ${rel}`,
     nothing: 'Ничего не введено.',
     leaked: (kinds: string) =>
-      `secret-drop: похоже, в сообщении ключ (${kinds}), поэтому оно не отправлено. Текст вернулся в поле ввода без ключа. Передай ключ безопасно: /secret ИМЯ`,
+      `secret-drop: в сообщении был ключ (${kinds}), я его не отправил. Сохрани ключ в плашке над полем ввода, а сообщение вернулось в поле уже без него.`,
+    guardTitle: 'Поймал ключ в сообщении',
+    guardHint: (kind: string) => `ключ ${kind} уже подставлен: проверь имя и нажми Enter`,
+    nameCue: 'Имя',
+    keyCue: 'Ключ',
+    dontSave: 'Не сохранять',
+    badName: 'secret-drop: имя — латинские буквы, цифры и _, не с цифры',
+    savedAs: (name: string, where: string) => `${name} (сохранён в ${where})`,
   },
 } satisfies Record<Lang, Record<string, unknown>>
 
