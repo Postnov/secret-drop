@@ -25,6 +25,9 @@ const isRevealed = atom({ plugin: 'secret-drop', key: 'isRevealed' } as const, f
 
 type Engine = EngineInterface
 
+// Prompt origins a person typed: the terminal, the phone bridge, the desktop app (an SDK host).
+const HUMAN_ORIGINS: ReadonlySet<string> = new Set(['composer', 'bridge', 'sdk'])
+
 type StartArgs = {
   secrets: SecretAsk[]
   reason?: string
@@ -471,7 +474,8 @@ export const register: Register = (on, options) => {
 
   if (guardPrompts) {
     on('prompt.submit', async ($, e, next) => {
-      if (e.origin.kind === 'plugin') return next(e)
+      // only what a person typed: agents' notifications, routines and other sessions pass untouched
+      if (!HUMAN_ORIGINS.has(e.origin.kind)) return next(e)
       const { found, text } = redactSecrets(e.text)
       if (found.length === 0) return next(e)
       $.clock.after(150, () => void $.prompt.fill({ text }))

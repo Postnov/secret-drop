@@ -178,3 +178,17 @@ describe('caught key', () => {
     await ui.unmount()
   })
 })
+
+describe('origins', () => {
+  test("an agent's notification that mentions a key-like id is not stopped", async ($, on) => {
+    const delivered: string[] = []
+    on('prompt.submit', (_$, e) => {
+      delivered.push(e.text)
+      return { text: e.text }
+    })
+    const text = `Agent finished: API key rotation done, run id Zq81kLm02XpR7tYv9wQe, key sk_${'9f3a'.repeat(8)}`
+    const sent = await $.prompt.submit({ text, wait: false, origin: { kind: 'task-notification' } })
+    expect('drop' in sent && sent.drop !== undefined).toBe(false)
+    expect(delivered).toEqual([text])
+  })
+})
